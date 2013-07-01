@@ -50,6 +50,16 @@ module VCloudSdk
       end
     end
 
+    def get_vm(obj)
+      if obj.is_a?(Xml::Vm)
+        obj
+      elsif obj.is_a?(String)
+        resolve_entity(obj)
+      else
+        raise CloudError, "Expecting Xml::Vm or String, got #{obj.inspect}."
+      end
+    end
+
     def upload_vapp_template(vapp_name, directory)
       ovdc = get_ovdc
       @logger.info("Uploading VM #{vapp_name} to #{ovdc["name"]} in " +
@@ -201,6 +211,41 @@ module VCloudSdk
           log_exception(e, "Instantiate vApp template #{vapp_name} failed." +
             "  Task #{task.operation} did not complete successfully.")
           delete_vapp(vapp)
+          raise e
+        end
+      end
+      @connection.get(vapp)
+    end
+
+    def instantiate_vapp_template_to_vm(source_template_id, vm_name,
+        description = nil, disk_locality = nil)
+      catalog_item = get_catalog_vapp(source_template_id)
+      unless catalog_item
+        @logger.error("Catalog item with ID #{source_template_id} not " +
+                          "found in catalog #{@vapp_catalog_name}.")
+        raise ObjectNotFoundError, "Item with ID #{source_template_id} " +
+            "not found in catalog #{@vapp_catalog_name}."
+      end
+      src_vapp_template = @connection.get(catalog_item.entity)
+      instantiate_vapp_params = Xml::WrapperFactory.create_instance(
+          "InstantiateVAppTemplateParams")
+      instantiate_vapp_params.name = vm_name
+      instantiate_vapp_params.description = description
+      instantiate_vapp_params.source = src_vapp_template
+      instantiate_vapp_params.all_eulas_accepted = true
+      instantiate_vapp_params.linked_clone = false
+      instantiate_vapp_params.set_locality = locality_spec(src_vapp_template,
+                                                           disk_locality)
+      vdc = get_ovdc
+      vapp = @connection.post(vdc.instantiate_vapp_template_link,
+                              instantiate_vapp_params)
+      vapp.running_tasks.each do |task|
+        begin
+          monitor_task(task, @time_limit["instantiate_vapp_template"])
+        rescue ApiError => e
+          log_exception(e, "Instantiate vApp template #{vapp_name} failed." +
+              "  Task #{task.operation} did not complete successfully.")
+          #delete_vapp(vapp)
           raise e
         end
       end
@@ -376,6 +421,121 @@ module VCloudSdk
     def get_disk(disk_id)
       resolve_entity(disk_id)
     end
+
+
+    def power_on_vm(vm)
+      @logger.info("Powering on vm #{vm.name} .")
+      current_vm = @connection.get(vm)
+      unless current_vm
+        raise ObjectNotFoundError, "vm #{vm.name} not found."
+      end
+      @logger.debug("vm status: #{current_vm["status"]}")
+      if is_vm_status(current_vm, :POWERED_ON)
+        @logger.info("vm #{vm.name} already powered-on.")
+        return
+      end
+      unless current_vm.power_on_link
+        raise CloudError, "vm #{vm.name} not in a state to be " +
+            "powered on."
+      end
+      task = @connection.post(current_vm.power_on_link, nil)
+      monitor_task(task,  @time_limit["power_on"])
+      @logger.info("vm #{current_vm.name} powered on.")
+      task
+    end
+
+    def power_off_vm(vm, undeploy = true)
+      @logger.info("Powering off vm #{vm.name} .")
+      @logger.info("Undeploying vm #{vm.name} .") if undeploy
+      current_vm = @connection.get(vm)
+      unless current_vm
+        raise ObjectNotFoundError, "vm #{vm.name} no longer exists."
+      end
+      @logger.debug("vm status: #{current_vm["status"]}")
+
+      if is_vm_status(current_vm, :SUSPENDED)
+        @logger.debug("vm #{current_vm.name} suspended, discard state " +
+                          "before powering off.")
+        raise VmSuspendedError, "discard state first"
+      end
+
+      if undeploy
+        # Since we do not apparently differentiate between powered-off and
+        # undeployed in our status, we should check if the undeploy link is
+        # available first.  If undeploy is not available and status is
+        # powered_off then it is undeployed.
+        unless current_vm.undeploy_link
+          if is_vm_status(current_vm, :POWERED_OFF)
+            @logger.info("vm #{vm.name} already powered-off, undeployed.")
+            return
+          end
+          raise CloudError, "vm #{vm.name} not in a state be " +
+              "powered-off, undeployed."
+        end
+
+        task = @connection.post(current_vm.undeploy_link, nil)
+        monitor_task(task, @time_limit["undeploy"])
+        @logger.info("vm #{current_vm.name} powered-off, undeployed.")
+        task
+      else
+        unless current_vm.power_off_link
+          if is_vm_status(current_vm, :POWERED_OFF)
+            @logger.info("vm #{vm.name} already powered off.")
+            return
+          end
+          raise CloudError, "vm #{vm.name} not in a state be powered off."
+        end
+        task = @connection.post(current_vm.power_off_link, nil)
+        monitor_task(task, @time_limit["power_off"])
+        @logger.info("vm #{current_vm.name} powered off.")
+        task
+      end
+    end
+
+    def discard_suspended_state_vm(vm)
+      @logger.info("Discarding suspended state of vm #{vm.name}.")
+      current_vm = @connection.get(vm)
+      unless current_vm
+        raise ObjectNotFoundError, "vm #{vm.name} no longer exists."
+      end
+      @logger.debug("vm status: #{current_vm["status"]}")
+
+      return unless is_vm_status(current_vm, :SUSPENDED)
+
+      @logger.info("Discarding suspended state of vm #{current_vm.name}.")
+      task = @connection.post(current_vm.discard_state, nil)
+      monitor_task(task, @time_limit["undeploy"])
+      current_vm = @connection.get(current_vm)
+      @logger.info("vm #{current_vm.name} suspended state discarded.")
+      task
+    end
+
+    def reboot_vm(vm)
+      @logger.info("Rebooting vm #{vm.name}.")
+      current_vm = @connection.get(vm)
+      unless current_vm
+        raise ObjectNotFoundError, "vm #{vm.name} no longer exists."
+      end
+      @logger.debug("vm status: #{current_vm["status"]}")
+
+      if is_vm_status(current_vm, :SUSPENDED)
+        @logger.debug("vm #{current_vm.name} suspended.")
+        raise VmSuspendedError, "vm suspended"
+      end
+      if is_vm_status(current_vm, :POWERED_OFF)
+        @logger.debug("vm #{current_vm.name} powered off.")
+        raise VmPoweredOffError, "vm powered off"
+      end
+
+      @logger.info("Rebooting vm #{current_vm.name}.")
+      task = @connection.post(current_vm.reboot_link, nil)
+      monitor_task(task)
+      current_vm = @connection.get(current_vm)
+      @logger.info("vm #{current_vm.name} rebooted.")
+      task
+    end
+
+    # --------------------
 
     def power_on_vapp(vapp)
       @logger.info("Powering on vApp #{vapp.name} .")
@@ -855,6 +1015,10 @@ module VCloudSdk
 
     def is_vapp_status(current_vapp, status)
       current_vapp["status"] == Xml::RESOURCE_ENTITY_STATUS[status].to_s
+    end
+
+    def is_vm_status(current_vm, status)
+      current_vm["status"] == Xml::RESOURCE_ENTITY_STATUS[status].to_s
     end
 
     def rollback_upload_vapp(vapp_template)

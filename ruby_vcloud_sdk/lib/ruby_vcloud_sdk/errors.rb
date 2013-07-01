@@ -5,6 +5,7 @@ module VCloudSdk
   class VappSuspendedError < CloudError; end
   class VmSuspendedError < CloudError; end
   class VappPoweredOffError < CloudError; end
+  class VmPoweredOffError < CloudError; end
 
   class ObjectNotFoundError < CloudError; end
 

@@ -33,6 +33,26 @@ module VCloudSdk
           "type" => MEDIA_TYPE[:DISK_ATTACH_DETACH_PARAMS]}, true).first
       end
 
+      def power_on_link
+        get_nodes("Link", {"rel" => "power:powerOn"}, true).first
+      end
+
+      def power_off_link
+        get_nodes("Link", {"rel" => "power:powerOff"}, true).first
+      end
+
+      def reboot_link
+        get_nodes("Link", {"rel" => "power:reboot"}, true).first
+      end
+
+      def undeploy_link
+        get_nodes("Link", {"rel" => "undeploy"}, true).first
+      end
+
+      def discard_state
+        get_nodes("Link", {"rel" => "discardState"}, true).first
+      end
+
       def edit_link
         get_nodes("Link", {"rel" => "edit"}, true).first
       end

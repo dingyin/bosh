@@ -140,6 +140,51 @@ module VCloudCloud
       raise
     end
 
+    def reconfigure_vm_only(vm, vapp, resource_pool, networks, environment)
+      ram_mb = Integer(resource_pool["ram"])
+      cpu = Integer(resource_pool["cpu"])
+      disk_mb = Integer(resource_pool["disk"])
+
+      disks = vm.hardware_section.hard_disks
+      @logger.debug("disks = #{disks.inspect}")
+      raise IndexError, "Invalid number of VM hard disks" unless disks.size == 1
+      system_disk = disks[0]
+      disks_previous = Array.new(disks)
+
+      add_vapp_networks(vapp, networks)
+
+      @logger.info("Reconfiguring VM hardware: #{ram_mb} MB RAM, #{cpu} CPU, " +
+                   "#{disk_mb} MB disk, #{networks}.")
+      @client.reconfigure_vm(vm) do |v|
+        v.name = vapp.name
+        v.description = @vcd["entities"]["description"]
+        v.change_cpu_count(cpu)
+        v.change_memory(ram_mb)
+        v.add_hard_disk(disk_mb)
+        v.delete_nic(*vm.hardware_section.nics)
+        add_vm_nics(v, networks)
+      end
+
+      delete_vapp_networks(vapp, networks)
+
+      vapp, vm = get_vapp_vm_by_vapp_id(vapp.urn)
+      ephemeral_disk = get_newly_added_disk(vm, disks_previous)
+
+      # prepare guest customization settings
+      network_env = generate_network_env(vm.hardware_section.nics, networks)
+      disk_env = generate_disk_env(system_disk, ephemeral_disk)
+      env = generate_agent_env(vapp.name, vm, vapp.name, network_env, disk_env)
+      env["env"] = environment
+      @logger.info("Setting VM env: #{vm.urn} #{env.inspect}")
+      set_agent_env(vm, env)
+
+      @logger.info("Powering on vm: #{vm.urn}")
+      @client.power_on_vm(vm)
+    rescue VCloudSdk::CloudError
+      delete_vm(vapp.urn)
+      raise
+    end
+
     def create_vm(agent_id, catalog_vapp_id, resource_pool, networks,
         disk_locality = nil, environment = {})
       @client = client
@@ -152,9 +197,94 @@ module VCloudCloud
 
           locality = independent_disks(disk_locality)
 
+          previous_vms = vapp.vms
+
           vapp = @client.instantiate_vapp_template(
-            catalog_vapp_id, agent_id, # vapp name
-            @vcd["entities"]["description"], locality)
+            catalog_vapp_id, # stemcell cid
+            agent_id, # also used as vapp name
+            @vcd["entities"]["description"],
+            locality)
+
+          @logger.debug("Instantiated vApp: name=#{vapp.name}, agent_id: #{agent_id} using stemcell(vapp) id: #{catalog_vapp_id}")
+
+          newly_instantiated_vm = get_newly_added_vm(vapp, previous_vms)
+
+          reconfigure_vm_only(newly_instantiated_vm, vapp, resource_pool, networks, environment)
+
+          @logger.info("Created VM: #{newly_instantiated_vm.urn} for agent id: #{agent_id}")
+          newly_instantiated_vm.urn
+        end
+      end
+    rescue VCloudSdk::CloudError => e
+      log_exception("create vApp", e)
+      raise e
+    end
+
+    def delete_vm(vm_id)
+      @client = client
+
+      with_thread_name("delete_vm(#{vm_id}, ...)") do
+        Util.retry_operation("delete_vm(#{vm_id}, ...)", @retries["cpi"],
+            @control["backoff"]) do
+          @logger.info("Deleting vm: #{vm_id}")
+          vm = @client.get_vm(vm_id)
+          vm_name = vm.name
+
+          begin
+            @client.power_off_vm(vm)
+          rescue VCloudSdk::VmSuspendedError => e
+            @client.discard_suspended_state_vm(vm)
+            @client.power_off_vm(vm)
+          end
+          del_vm = @vcd["debug"]["delete_vm"]
+          @client.delete_vm(vm) if del_vm
+          @logger.info("#{del_vm ? "Deleted" : "Powered off"} vm: #{vm_id}")
+        end
+      end
+    rescue VCloudSdk::CloudError => e
+      log_exception("delete vm #{vm_id}", e)
+      raise e
+    end
+
+    def reboot_vm(vm_id)
+      @client = client
+
+      with_thread_name("reboot_vm(#{vm_id}, ...)") do
+        Util.retry_operation("reboot_vm(#{vm_id}, ...)", @retries["cpi"],
+            @control["backoff"]) do
+          @logger.info("Rebooting vm: #{vm_id}")
+          vm = @client.get_vm(vm_id)
+          begin
+            @client.reboot_vm(vm)
+          rescue VCloudSdk::VmPoweredOffError => e
+            @client.power_on_vm(vm)
+          rescue VCloudSdk::VmSuspendedError => e
+            @client.discard_suspended_state_vm(vm)
+            @client.power_on_vm(vm)
+          end
+          @logger.info("Rebooted vm: #{vm_id}")
+        end
+      end
+    rescue VCloudSdk::CloudError => e
+      log_exception("reboot vm #{vm_id}", e)
+      raise e
+    end
+
+    def create_vapp(agent_id, catalog_vapp_id, resource_pool, networks,
+        disk_locality = nil, environment = {})
+      @client = client
+
+      with_thread_name("create_vm(#{agent_id}, ...)") do
+        Util.retry_operation("create_vm(#{agent_id}, ...)", @retries["cpi"],
+                             @control["backoff"]) do
+          @logger.info("Creating VM: #{agent_id}")
+          @logger.debug("networks: #{networks.inspect}")
+
+          locality = independent_disks(disk_locality)
+
+          vapp = @client.instantiate_vapp_template(
+              catalog_vapp_id, agent_id, # vapp name
+              @vcd["entities"]["description"], locality)
           @logger.debug("Instantiated vApp: id=#{vapp.urn} name=#{vapp.name}")
 
           reconfigure_vm(vapp, resource_pool, networks, environment)
@@ -168,7 +298,7 @@ module VCloudCloud
       raise e
     end
 
-    def delete_vm(vapp_id)
+    def delete_vapp(vapp_id)
       @client = client
 
       with_thread_name("delete_vm(#{vapp_id}, ...)") do
@@ -197,7 +327,7 @@ module VCloudCloud
       raise e
     end
 
-    def reboot_vm(vapp_id)
+    def reboot_vapp(vapp_id)
       @client = client
 
       with_thread_name("reboot_vm(#{vapp_id}, ...)") do
@@ -614,6 +744,21 @@ module VCloudCloud
       end
 
       @logger.info("Newly added disk: #{newly_added[0]}")
+      newly_added[0]
+    end
+
+    def get_newly_added_vm(vapp, previous_vms)
+      current_vms = vapp.vms
+      newly_added = current_vms - previous_vms
+
+      if newly_added.size != 1
+        @logger.debug("Previous vms in #{vapp.id}: #{previous_vms.inspect}")
+        @logger.debug("Current disks in #{vapp.id}:  #{current_vms.inspect}")
+        raise IndexError, "Expecting #{previous_vms.size + 1} vms, found " +
+            "#{current_vms.size}"
+      end
+
+      @logger.info("Newly added vm: #{newly_added[0]}")
       newly_added[0]
     end
 

@@ -5,6 +5,9 @@ module Bosh::Deployer
 
     class Vcloud < InstanceManager
 
+      def remote_tunnel(port)
+      end
+
       # TODO extract
       def update_spec(spec)
         properties = spec.properties

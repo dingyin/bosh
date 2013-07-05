@@ -140,7 +140,7 @@ module VCloudCloud
       raise
     end
 
-    def reconfigure_vm_only(vm, vapp, resource_pool, networks, environment)
+    def reconfigure_vm_only(vm, vapp, agent_id, resource_pool, networks, environment)
       ram_mb = Integer(resource_pool["ram"])
       cpu = Integer(resource_pool["cpu"])
       disk_mb = Integer(resource_pool["disk"])
@@ -156,7 +156,7 @@ module VCloudCloud
       @logger.info("Reconfiguring VM hardware: #{ram_mb} MB RAM, #{cpu} CPU, " +
                    "#{disk_mb} MB disk, #{networks}.")
       @client.reconfigure_vm(vm) do |v|
-        v.name = vapp.name
+        v.name = agent_id
         v.description = @vcd["entities"]["description"]
         v.change_cpu_count(cpu)
         v.change_memory(ram_mb)
@@ -167,13 +167,13 @@ module VCloudCloud
 
       delete_vapp_networks(vapp, networks)
 
-      vapp, vm = get_vapp_vm_by_vapp_id(vapp.urn)
+      # vapp, vm = get_vapp_vm_by_vapp_id(vapp.urn)
       ephemeral_disk = get_newly_added_disk(vm, disks_previous)
 
       # prepare guest customization settings
       network_env = generate_network_env(vm.hardware_section.nics, networks)
       disk_env = generate_disk_env(system_disk, ephemeral_disk)
-      env = generate_agent_env(vapp.name, vm, vapp.name, network_env, disk_env)
+      env = generate_agent_env(agent_id, vm, agent_id, network_env, disk_env)
       env["env"] = environment
       @logger.info("Setting VM env: #{vm.urn} #{env.inspect}")
       set_agent_env(vm, env)
@@ -181,7 +181,7 @@ module VCloudCloud
       @logger.info("Powering on vm: #{vm.urn}")
       @client.power_on_vm(vm)
     rescue VCloudSdk::CloudError
-      delete_vm(vapp.urn)
+      delete_vm(vm.urn)
       raise
     end
 
@@ -192,26 +192,49 @@ module VCloudCloud
       with_thread_name("create_vm(#{agent_id}, ...)") do
         Util.retry_operation("create_vm(#{agent_id}, ...)", @retries["cpi"],
             @control["backoff"]) do
-          @logger.info("Creating VM: #{agent_id}")
+
+          requested_vapp_name = environment["vapp"]
+
+          @logger.info("Creating VM: #{agent_id} in catalog: #{catalog_vapp_id} - VAPP: #{requested_vapp_name}")
           @logger.debug("networks: #{networks.inspect}")
 
           locality = independent_disks(disk_locality)
 
-          previous_vms = vapp.vms
+          recompose_required = false
+          vapp = nil
+          temporary_vapp_name = agent_id # Use as vapp_name unless a specific vapp_name was specified
 
-          vapp = @client.instantiate_vapp_template(
+          if !vapp_name.nil?
+            # Check if the vapp exists already from a previous create_vm
+            begin
+              vapp = @client.get_vapp_by_name(vapp_name)
+              temporary_vapp_name = "vapp-tmp-#{generate_unique_name}"
+              recompose_required = true
+            rescue => e
+              @logger.debug("Vapp: #{vapp_name} not found, attempting to instantiate as a new vapp")
+              temporary_vapp_name = requested_vapp_name
+              end
+          end
+
+          vapp_temporary = @client.instantiate_vapp_template(
             catalog_vapp_id, # stemcell cid
-            agent_id, # also used as vapp name
+            temporary_vapp_name,
             @vcd["entities"]["description"],
             locality)
 
           @logger.debug("Instantiated vApp: name=#{vapp.name}, agent_id: #{agent_id} using stemcell(vapp) id: #{catalog_vapp_id}")
 
-          newly_instantiated_vm = get_newly_added_vm(vapp, previous_vms)
+          newly_instantiated_vm = vapp_temporary.vms[0]
 
-          reconfigure_vm_only(newly_instantiated_vm, vapp, resource_pool, networks, environment)
-
+          reconfigure_vm_only(newly_instantiated_vm, vapp, agent_id, resource_pool, networks, environment)
           @logger.info("Created VM: #{newly_instantiated_vm.urn} for agent id: #{agent_id}")
+
+          if recompose_required
+            # Re-compose vapp - if we instantiated a new temporary vapp then we need to move the new vm into the
+            # existing "vapp_name"ed vapp
+            @client.recompose_vapp(vapp_temporary, vapp)
+          end
+
           newly_instantiated_vm.urn
         end
       end
@@ -240,6 +263,8 @@ module VCloudCloud
           @client.delete_vm(vm) if del_vm
           @logger.info("#{del_vm ? "Deleted" : "Powered off"} vm: #{vm_id}")
         end
+
+        # TODO: Delete vapp if this is the last vm in the vapp
       end
     rescue VCloudSdk::CloudError => e
       log_exception("delete vm #{vm_id}", e)
@@ -540,6 +565,8 @@ module VCloudCloud
         TIMELIMIT_DELETE_MEDIA
       @vcd["control"]["time_limit_sec"]["instantiate_vapp_template"] ||=
         TIMELIMIT_INSTANTIATE_VAPP_TEMPLATE
+      @vcd["control"]["time_limit_sec"]["recompose_vapp_template"] ||=
+          TIMELIMIT_RECOMPOSE_VAPP_TEMPLATE
       @vcd["control"]["time_limit_sec"]["power_on"] ||= TIMELIMIT_POWER_ON
       @vcd["control"]["time_limit_sec"]["power_off"] ||= TIMELIMIT_POWER_OFF
       @vcd["control"]["time_limit_sec"]["undeploy"] ||= TIMELIMIT_UNDEPLOY

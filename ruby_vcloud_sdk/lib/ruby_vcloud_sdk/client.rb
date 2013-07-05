@@ -624,6 +624,27 @@ module VCloudSdk
       task
     end
 
+    def recompose_vapp(source_vapp, destination_vapp)
+      @logger.info("Moving #{source_vapp.vms.size} VMs from #{source_vapp.name} to #{destination_vapp.name}")
+
+      recompose_vapp_params = Xml::WrapperFactory.create_instance("RecomposeVAppTemplateParams")
+      recompose_vapp_params.all_eulas_accepted = true
+      recompose_vapp_params.description = "Moving #{source_vapp.vms.size} VMs from #{source_vapp.name} to #{destination_vapp.name}"
+      recompose_vapp_params.add_source_item(source_vapp.href)
+
+      vapp = @connection.post(destination_vapp.recompose_vapp_link, recompose_vapp_params)
+      vapp.running_tasks.each do |task|
+        begin
+          monitor_task(task, @time_limit["recompose_vapp_template"])
+        rescue ApiError => e
+          log_exception(e, "Recompose vApp #{destination_vapp.name} failed." +
+              "  Task #{task.operation} did not complete successfully.")
+          raise e
+        end
+      end
+      @connection.get(vapp)
+    end
+
     def reboot_vapp(vapp)
       @logger.info("Rebooting vApp #{vapp.name}.")
       current_vapp = @connection.get(vapp)

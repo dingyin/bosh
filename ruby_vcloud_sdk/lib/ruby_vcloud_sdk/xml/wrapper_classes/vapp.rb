@@ -42,6 +42,10 @@ module VCloudSdk
         get_nodes("Link", {"rel" => "discardState"}, true).first
       end
 
+      def recompose_vapp_link
+        get_nodes("Link", {"rel" => "recompose"}, true).first
+      end
+
       def vms
         get_nodes("Vm")
       end

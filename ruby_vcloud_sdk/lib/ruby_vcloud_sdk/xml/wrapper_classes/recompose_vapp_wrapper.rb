@@ -1,7 +1,7 @@
 module VCloudSdk
   module Xml
 
-    class RecomposeVAppTemplateParams < Wrapper
+    class RecomposeVAppParams < Wrapper
       def name
         @root["name"]
       end

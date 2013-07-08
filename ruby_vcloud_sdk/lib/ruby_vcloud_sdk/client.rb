@@ -629,7 +629,7 @@ module VCloudSdk
       @logger.info("Recompose_vapp(#{destination_vapp_name}) - Adding #{source_vapps_to_add_hrefs.size}")  if !source_vapps_to_add_hrefs.nil?
       @logger.info("Recompose_vapp(#{destination_vapp_name}) - Deleting #{items_to_delete_hrefs.size}")  if !items_to_delete_hrefs.nil?
 
-      recompose_vapp_params = Xml::WrapperFactory.create_instance("RecomposeVAppTemplateParams")
+      recompose_vapp_params = Xml::WrapperFactory.create_instance("RecomposeVAppParams")
       recompose_vapp_params.name = destination_vapp_name
       recompose_vapp_params.all_eulas_accepted = true
 

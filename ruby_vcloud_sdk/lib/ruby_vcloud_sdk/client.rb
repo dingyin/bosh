@@ -624,13 +624,22 @@ module VCloudSdk
       task
     end
 
-    def recompose_vapp(source_vapp, destination_vapp)
-      @logger.info("Moving #{source_vapp.vms.size} VMs from #{source_vapp.name} to #{destination_vapp.name}")
+    def recompose_vapp(destination_vapp, destination_vapp_name, source_vapps_to_add_hrefs, items_to_delete_hrefs)
+      @logger.info("Recompose_vapp(#{destination_vapp.name}) - Renaming #{destination_vapp.name} to: #{destination_vapp_name}")  if destination_vapp.name != destination_vapp_name
+      @logger.info("Recompose_vapp(#{destination_vapp_name}) - Adding #{source_vapps_to_add_hrefs.size}")  if !source_vapps_to_add_hrefs.nil?
+      @logger.info("Recompose_vapp(#{destination_vapp_name}) - Deleting #{items_to_delete_hrefs.size}")  if !items_to_delete_hrefs.nil?
 
       recompose_vapp_params = Xml::WrapperFactory.create_instance("RecomposeVAppTemplateParams")
+      recompose_vapp_params.name = destination_vapp_name
       recompose_vapp_params.all_eulas_accepted = true
-      recompose_vapp_params.description = "Moving #{source_vapp.vms.size} VMs from #{source_vapp.name} to #{destination_vapp.name}"
-      recompose_vapp_params.add_source_item(source_vapp.href)
+
+      if !source_vapps_to_add.nil?
+        source_vapps_to_add_hrefs.each { |source_href| recompose_vapp_params.add_source_item(source_href) }
+      end
+
+      if !items_to_delete_hrefs.nil?
+        items_to_delete_hrefs.each { |item_href| recompose_vapp_params.add_delete_items(item_href) }
+      end
 
       vapp = @connection.post(destination_vapp.recompose_vapp_link, recompose_vapp_params)
       vapp.running_tasks.each do |task|

@@ -33,6 +33,8 @@ module VCloudCloud
 
       @client_lock = Mutex.new
 
+      @vapp_lock = Mutex.new
+
       at_exit { destroy_client }
     end
 
@@ -195,25 +197,17 @@ module VCloudCloud
 
           requested_vapp_name = environment["vapp"]
 
-          @logger.info("Creating VM: #{agent_id} in catalog: #{catalog_vapp_id} - VAPP: #{requested_vapp_name}")
+          @logger.info("Creating VM: #{agent_id} in catalog: #{catalog_vapp_id} - VAPP: #{requested_vapp_name || "NOT SPECIFIED"}")
           @logger.debug("networks: #{networks.inspect}")
 
           locality = independent_disks(disk_locality)
 
           recompose_required = false
-          vapp = nil
           temporary_vapp_name = agent_id # Use as vapp_name unless a specific vapp_name was specified
 
-          if !vapp_name.nil?
-            # Check if the vapp exists already from a previous create_vm
-            begin
-              vapp = @client.get_vapp_by_name(vapp_name)
-              temporary_vapp_name = "vapp-tmp-#{generate_unique_name}"
-              recompose_required = true
-            rescue => e
-              @logger.debug("Vapp: #{vapp_name} not found, attempting to instantiate as a new vapp")
-              temporary_vapp_name = requested_vapp_name
-              end
+          if !requested_vapp_name.nil?
+            temporary_vapp_name =  "vapp-tmp-#{generate_unique_name}"
+            recompose_required = true
           end
 
           vapp_temporary = @client.instantiate_vapp_template(
@@ -222,17 +216,28 @@ module VCloudCloud
             @vcd["entities"]["description"],
             locality)
 
-          @logger.debug("Instantiated vApp: name=#{vapp.name}, agent_id: #{agent_id} using stemcell(vapp) id: #{catalog_vapp_id}")
+          @logger.debug("Instantiated vApp: name=#{vapp_temporary.name}, agent_id: #{agent_id} using stemcell(vapp) id: #{catalog_vapp_id}")
 
           newly_instantiated_vm = vapp_temporary.vms[0]
 
-          reconfigure_vm_only(newly_instantiated_vm, vapp, agent_id, resource_pool, networks, environment)
+          reconfigure_vm_only(newly_instantiated_vm, vapp_temporary, agent_id, resource_pool, networks, environment)
           @logger.info("Created VM: #{newly_instantiated_vm.urn} for agent id: #{agent_id}")
 
           if recompose_required
             # Re-compose vapp - if we instantiated a new temporary vapp then we need to move the new vm into the
-            # existing "vapp_name"ed vapp
-            @client.recompose_vapp(vapp_temporary, vapp)
+            # existing "requested_vapp_name"ed vapp
+
+            # Check if the vapp exists already from a previous create_vm
+            vapp = nil
+            @vapp_lock.synchronize {
+              begin
+                vapp = @client.get_vapp_by_name(requested_vapp_name)
+                @client.recompose_vapp(vapp, requested_vapp_name, [vapp_temporary.vms[0].href], nil)
+              rescue => e
+                @logger.debug("Vapp: #{requested_vapp_name} not found. Renaming #{temporary_vapp_name} to #{requested_vapp_name}")
+                @client.recompose_vapp(vapp_temporary, requested_vapp_name, nil, nil)
+              end
+            }
           end
 
           newly_instantiated_vm.urn

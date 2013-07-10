@@ -633,7 +633,7 @@ module VCloudSdk
       recompose_vapp_params.name = destination_vapp_name
       recompose_vapp_params.all_eulas_accepted = true
 
-      if !source_vapps_to_add.nil?
+      if !source_vapps_to_add_hrefs.nil?
         source_vapps_to_add_hrefs.each { |source_href| recompose_vapp_params.add_source_item(source_href) }
       end
 
@@ -641,17 +641,12 @@ module VCloudSdk
         items_to_delete_hrefs.each { |item_href| recompose_vapp_params.add_delete_items(item_href) }
       end
 
-      vapp = @connection.post(destination_vapp.recompose_vapp_link, recompose_vapp_params)
-      vapp.running_tasks.each do |task|
-        begin
-          monitor_task(task, @time_limit["recompose_vapp_template"])
-        rescue ApiError => e
-          log_exception(e, "Recompose vApp #{destination_vapp.name} failed." +
-              "  Task #{task.operation} did not complete successfully.")
-          raise e
-        end
-      end
-      @connection.get(vapp)
+      @logger.debug("recompose_vapp_params = #{recompose_vapp_params}\nrecomposeLink = #{destination_vapp.recompose_vapp_link}")
+
+      task = @connection.post(destination_vapp.recompose_vapp_link, recompose_vapp_params)
+      monitor_task(task, @time_limit["recompose_vapp_template"])
+
+      @connection.get(destination_vapp)
     end
 
     def reboot_vapp(vapp)
@@ -687,6 +682,17 @@ module VCloudSdk
 
     def get_catalog(name)
       catalog = @connection.get(@admin_org.catalog(name))
+    end
+
+
+    def get_vapp_by_name(name)
+      @logger.debug("Getting vApp #{name}")
+      vdc = get_ovdc
+      node = vdc.get_vapp(name)
+      raise ObjectNotFoundError, "vApp #{name} does not exist." unless node
+      vapp = @connection.get(node)
+      raise ObjectNotFoundError, "vApp #{name} does not exist." unless vapp
+      vapp
     end
 
     private
@@ -1015,16 +1021,6 @@ module VCloudSdk
       raise ObjectNotFoundError, "Entity #{entity.name} does not expose a " +
         "metadata link method." if !entity.respond_to?(:metadata_link)
       "#{entity.metadata_link.href}/#{key}"
-    end
-
-    def get_vapp_by_name(name)
-      @logger.debug("Getting vApp #{name}")
-      vdc = get_ovdc
-      node = vdc.get_vapp(name)
-      raise ObjectNotFoundError, "vApp #{name} does not exist." unless node
-      vapp = @connection.get(node)
-      raise ObjectNotFoundError, "vApp #{name} does not exist." unless vapp
-      vapp
     end
 
     def locality_spec(src_vapp_template, disk_locality)

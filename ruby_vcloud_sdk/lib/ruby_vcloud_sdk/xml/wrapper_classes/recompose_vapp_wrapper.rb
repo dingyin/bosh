@@ -30,6 +30,8 @@ module VCloudSdk
 
         node_source = add_child("Source", nil, nil, node_sourced_item)
         node_source["href"] = entity_to_add_href
+
+        add_child(node_sourced_item)
       end
 
       def add_delete_item(entity_to_delete_href)
@@ -37,6 +39,8 @@ module VCloudSdk
 
         node_delete_item = create_child("DeleteItem")
         node_delete_item["href"] = entity_to_delete_href
+
+        add_child(node_delete_item)
       end
     end
   end

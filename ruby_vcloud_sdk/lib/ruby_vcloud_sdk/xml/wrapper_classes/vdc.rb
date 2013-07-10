@@ -35,6 +35,11 @@ module VCloudSdk
           {"type"=>MEDIA_TYPE[:VAPP_TEMPLATE], "name"=>name})
       end
 
+      def get_vapp(name)
+        get_nodes("ResourceEntity",
+                  {"type"=>MEDIA_TYPE[:VAPP], "name"=>name}).first
+      end
+
       def available_networks
         get_nodes("Network", {"type"=>MEDIA_TYPE[:NETWORK]})
       end

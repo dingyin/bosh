@@ -11,7 +11,7 @@
                          xmlns:ns10="http://www.vmware.com/vcloud/versions"
                          linkedClone="false" powerOn="false" deploy="false" name="">
   <ns7:Description></ns7:Description>
-  <ns7:VAppParent/>
+  <ns7:VAppParent href="" />
   <ns7:InstantiationParams/>
   <ns7:AllEULAsAccepted>false</ns7:AllEULAsAccepted>
 </ns7:RecomposeVAppParams>

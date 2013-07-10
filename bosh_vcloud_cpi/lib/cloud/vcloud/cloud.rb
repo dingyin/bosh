@@ -54,6 +54,14 @@ module VCloudCloud
       }
     end
 
+    def has_vm?(vm_cid)
+      @client = client
+      @client.get_vm(vm_cid)
+      true
+    rescue Bosh::Clouds::VMNotFound
+      false
+    end
+
     def create_stemcell(image, _)
       @client = client
 
@@ -234,7 +242,7 @@ module VCloudCloud
                 vapp = @client.get_vapp_by_name(requested_vapp_name)
                 @client.recompose_vapp(vapp, requested_vapp_name, [vapp_temporary.vms[0].href], nil)
               rescue => e
-                @logger.debug("Vapp: #{requested_vapp_name} not found. Renaming #{temporary_vapp_name} to #{requested_vapp_name}")
+                @logger.debug("Vapp: #{requested_vapp_name} not found (#{e}). Renaming #{temporary_vapp_name} to #{requested_vapp_name}")
                 @client.recompose_vapp(vapp_temporary, requested_vapp_name, nil, nil)
               end
             }

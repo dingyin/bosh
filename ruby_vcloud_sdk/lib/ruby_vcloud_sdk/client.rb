@@ -201,6 +201,8 @@ module VCloudSdk
       instantiate_vapp_params.linked_clone = false
       instantiate_vapp_params.set_locality = locality_spec(src_vapp_template,
         disk_locality)
+
+      @logger.debug("instantiate_vapp_params: #{instantiate_vapp_params}")
       vdc = get_ovdc
       vapp = @connection.post(vdc.instantiate_vapp_template_link,
         instantiate_vapp_params)
@@ -641,9 +643,21 @@ module VCloudSdk
         items_to_delete_hrefs.each { |item_href| recompose_vapp_params.add_delete_items(item_href) }
       end
 
-      @logger.debug("recompose_vapp_params = #{recompose_vapp_params}\nrecomposeLink = #{destination_vapp.recompose_vapp_link}")
+      # HACK: Workaround. recomposeLink is not available when vapp is running (so manually construct the link)
+      recompose_vapp_link = nil
+      begin
+        destination_vapp.recompose_vapp_link
+      rescue => e
+        @logger.debug("Manually constructing RecomposeLink as its unavailable: #{e}")
+        recompose_vapp_link = Xml::WrapperFactory.create_instance("Link")
+        recompose_vapp_link.rel="recompose"
+        recompose_vapp_link.type="application/vnd.vmware.vcloud.recomposeVAppParams+xml"
+        recompose_vapp_link.href="#{destination_vapp.href}/action/recomposeVApp"
+      end
 
-      task = @connection.post(destination_vapp.recompose_vapp_link, recompose_vapp_params)
+      @logger.debug("recompose_vapp_params = #{recompose_vapp_params}\nrecomposeLink = #{recompose_vapp_link}")
+
+      task = @connection.post(recompose_vapp_link, recompose_vapp_params)
       monitor_task(task, @time_limit["recompose_vapp_template"])
 
       @connection.get(destination_vapp)

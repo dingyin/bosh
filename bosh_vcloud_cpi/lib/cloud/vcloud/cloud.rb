@@ -187,9 +187,6 @@ module VCloudCloud
       env["env"] = environment
       @logger.info("Setting VM env: #{vm.urn} #{env.inspect}")
       set_agent_env(vm, env)
-
-      @logger.info("Powering on vm: #{vm.urn}")
-      @client.power_on_vm(vm)
     rescue VCloudSdk::CloudError
       delete_vm(vm.urn)
       raise
@@ -236,17 +233,29 @@ module VCloudCloud
             # existing "requested_vapp_name"ed vapp
 
             # Check if the vapp exists already from a previous create_vm
-            vapp = nil
             @vapp_lock.synchronize {
+              vapp = nil
+
               begin
                 vapp = @client.get_vapp_by_name(requested_vapp_name)
-                @client.recompose_vapp(vapp, requested_vapp_name, [vapp_temporary.vms[0].href], nil)
+                @logger.debug("Found: #{requested_vapp_name} - #{vapp}")
               rescue => e
                 @logger.debug("Vapp: #{requested_vapp_name} not found (#{e}). Renaming #{temporary_vapp_name} to #{requested_vapp_name}")
+              end
+
+              if vapp.nil?
                 @client.recompose_vapp(vapp_temporary, requested_vapp_name, nil, nil)
+              else
+                @logger.debug("Adding vapp: #{vapp_temporary.name} to #{requested_vapp_name}")
+                @client.recompose_vapp(vapp, requested_vapp_name, [vapp_temporary.href], nil)
+                @logger.debug("Delete source temporary vapp: #{vapp_temporary.name}")
+                @client.delete_vapp(vapp_temporary)
               end
             }
           end
+
+          @logger.info("Powering on vm: #{newly_instantiated_vm.urn}")
+          @client.power_on_vm(newly_instantiated_vm)
 
           newly_instantiated_vm.urn
         end

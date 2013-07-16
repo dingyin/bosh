@@ -6,7 +6,7 @@ module VCloudSdk
         attempts.times do |attempt|
           begin
             return b.call
-          rescue ApiError => e
+          rescue => e
             raise e if attempt >= attempts-1
             delay = backoff ** attempt
             Config.logger.error("Retry-attempt #{attempt+1}/#{attempts} " +

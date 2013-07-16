@@ -222,10 +222,12 @@ module VCloudCloud
             locality)
 
           @logger.debug("Instantiated vApp: name=#{vapp_temporary.name}, agent_id: #{agent_id} using stemcell(vapp) id: #{catalog_vapp_id}")
+          vm_temporary = vapp_temporary.vms[0]
 
-          newly_instantiated_vm = vapp_temporary.vms[0]
+          newly_instantiated_vm = vm_temporary
+          container_vapp = vapp_temporary
 
-          reconfigure_vm_only(newly_instantiated_vm, vapp_temporary, agent_id, resource_pool, networks, environment)
+          reconfigure_vm_only(newly_instantiated_vm, container_vapp, agent_id, resource_pool, networks, environment)
           @logger.info("Created VM: #{newly_instantiated_vm.urn} for agent id: #{agent_id}")
 
           if recompose_required
@@ -234,28 +236,59 @@ module VCloudCloud
 
             # Check if the vapp exists already from a previous create_vm
             @vapp_lock.synchronize {
-              vapp = nil
-
               begin
-                vapp = @client.get_vapp_by_name(requested_vapp_name)
-                @logger.debug("Found: #{requested_vapp_name} - #{vapp}")
+                container_vapp = @client.get_vapp_by_name(requested_vapp_name)
+                @logger.debug("Found: #{requested_vapp_name}")
               rescue => e
+                container_vapp = nil
                 @logger.debug("Vapp: #{requested_vapp_name} not found (#{e}). Renaming #{temporary_vapp_name} to #{requested_vapp_name}")
               end
 
-              if vapp.nil?
-                @client.recompose_vapp(vapp_temporary, requested_vapp_name, nil, nil)
+              if container_vapp.nil?
+                Util.retry_operation("rename_vapp(#{vapp_temporary.name} -> #{requested_vapp_name})",
+                                     @retries["default"],
+                                     @control["backoff"]) do
+                  @client.recompose_vapp(vapp_temporary, requested_vapp_name, nil, nil)
+                end
+                @logger.debug("Rename successful")
               else
                 @logger.debug("Adding vapp: #{vapp_temporary.name} to #{requested_vapp_name}")
-                @client.recompose_vapp(vapp, requested_vapp_name, [vapp_temporary.href], nil)
+                Util.retry_operation("move vms from (#{vapp_temporary.name} -> #{requested_vapp_name})",
+                                     @retries["default"],
+                                     @control["backoff"]) do
+
+                  @client.recompose_vapp(container_vapp, requested_vapp_name, [vapp_temporary.href], nil)
+                end
+
+                # After recompose, the href/id of the recomposed vm changes, so update the information for the
+                # vm_temporary
+
+                container_vapp = @client.get_vapp_by_name(requested_vapp_name) # update
+                newly_instantiated_vm = container_vapp.vm(vm_temporary.name)
+                @logger.debug("Updated #{vm_temporary.name} to: #{newly_instantiated_vm}")
+
                 @logger.debug("Delete source temporary vapp: #{vapp_temporary.name}")
-                @client.delete_vapp(vapp_temporary)
+                Util.retry_operation("delete (#{vapp_temporary.name})",
+                                     @retries["default"],
+                                     @control["backoff"]) do
+                  @client.delete_vapp(vapp_temporary)
+                end
+
+                @logger.debug("Deleted temporary vapp: #{vapp_temporary.name}")
               end
+
+              @logger.debug("Sleeping a while to allow DB operations to complete!")
+              sleep(5)    # BAD BAD HACK
             }
           end
 
           @logger.info("Powering on vm: #{newly_instantiated_vm.urn}")
-          @client.power_on_vm(newly_instantiated_vm)
+          Util.retry_operation("Power on vm: #{newly_instantiated_vm.urn}",
+                               @retries["default"],
+                               @control["backoff"]) do
+
+            @client.power_on_vm(newly_instantiated_vm)
+          end
 
           newly_instantiated_vm.urn
         end
@@ -604,7 +637,8 @@ module VCloudCloud
       @vcd["debug"] = {} unless @vcd["debug"]
       @vcd["debug"]["delete_vapp"] = DEBUG_DELETE_VAPP unless
         @vcd["debug"]["delete_vapp"]
-    end
+      @vcd["debug"]["delete_vm"] = DEBUG_DELETE_VM unless
+          @vcd["debug"]["delete_vm"]    end
 
     def create_client
       url = @vcd["url"]

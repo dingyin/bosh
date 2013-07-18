@@ -336,22 +336,22 @@ module VCloudCloud
       raise e
     end
 
-    def attach_disk(vapp_id, disk_id)
+    def attach_disk(vm_id, disk_id)
       @client = client
 
-      with_thread_name("attach_disk(#{vapp_id} #{disk_id})") do
-        Util.retry_operation("attach_disk(#{vapp_id}, #{disk_id})",
+      with_thread_name("attach_disk(#{vm_id} #{disk_id})") do
+        Util.retry_operation("attach_disk(#{vm_id}, #{disk_id})",
             @retries["cpi"], @control["backoff"]) do
-          @logger.info("Attaching disk: #{disk_id} on vm: #{vapp_id}")
+          @logger.info("Attaching disk: #{disk_id} on vm: #{vm_id}")
 
-          vapp, vm = get_vapp_vm_by_vapp_id(vapp_id)
+          vm = @client.get_vm(vm_id)
           # vm.hardware_section will change, save current state of disks
           disks_previous = Array.new(vm.hardware_section.hard_disks)
 
           disk = @client.get_disk(disk_id)
           @client.attach_disk(disk, vm)
 
-          vapp, vm = get_vapp_vm_by_vapp_id(vapp_id)
+          vm = @client.get_vm(vm_id)
           persistent_disk = get_newly_added_disk(vm, disks_previous)
 
           env = get_current_agent_env(vm)
@@ -359,7 +359,7 @@ module VCloudCloud
           @logger.info("Updating agent env to: #{env.inspect}")
           set_agent_env(vm, env)
 
-          @logger.info("Attached disk:#{disk_id} to VM:#{vapp_id}")
+          @logger.info("Attached disk:#{disk_id} to VM:#{vm_id}")
         end
       end
     rescue VCloudSdk::CloudError => e
@@ -367,21 +367,21 @@ module VCloudCloud
       raise e
     end
 
-    def detach_disk(vapp_id, disk_id)
+    def detach_disk(vm_id, disk_id)
       @client = client
 
-      with_thread_name("detach_disk(#{vapp_id} #{disk_id})") do
-        Util.retry_operation("detach_disk(#{vapp_id}, #{disk_id})",
+      with_thread_name("detach_disk(#{vm_id} #{disk_id})") do
+        Util.retry_operation("detach_disk(#{vm_id}, #{disk_id})",
             @retries["cpi"], @control["backoff"]) do
-          @logger.info("Detaching disk: #{disk_id} from vm: #{vapp_id}")
+          @logger.info("Detaching disk: #{disk_id} from vm: #{vm_id}")
 
-          vapp, vm = get_vapp_vm_by_vapp_id(vapp_id)
+          vm = @client.get_vm(vm_id)
 
           disk = @client.get_disk(disk_id)
           begin
             @client.detach_disk(disk, vm)
           rescue VCloudSdk::VmSuspendedError => e
-            @client.discard_suspended_state_vapp(vapp)
+            @client.discard_suspended_state_vm(vm)
             @client.detach_disk(disk, vm)
           end
 
@@ -390,7 +390,7 @@ module VCloudCloud
           @logger.info("Updating agent env to: #{env.inspect}")
           set_agent_env(vm, env)
 
-          @logger.info("Detached disk: #{disk_id} on vm: #{vapp_id}")
+          @logger.info("Detached disk: #{disk_id} on vm: #{vm_id}")
         end
       end
     rescue VCloudSdk::CloudError => e
@@ -412,7 +412,7 @@ module VCloudCloud
             disk = @client.create_disk(disk_name, size_mb)
           else
             # vm_locality => vapp_id
-            vapp, vm = get_vapp_vm_by_vapp_id(vm_locality)
+            vm = @client.get_vm(vm_locality)
             @logger.info("Creating disk: #{disk_name} #{size_mb} #{vm.name}")
             disk = @client.create_disk(disk_name, size_mb, vm)
           end

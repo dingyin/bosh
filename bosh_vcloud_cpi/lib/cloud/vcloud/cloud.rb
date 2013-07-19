@@ -234,7 +234,18 @@ module VCloudCloud
                 @client.power_on_vm(newly_instantiated_vm)
               end
             }
+          else
+              reconfigure_vm_only(newly_instantiated_vm, container_vapp, agent_id, resource_pool, networks, environment)
+              @logger.info("Created VM: #{newly_instantiated_vm.urn} for agent id: #{agent_id}")
+
+              Util.retry_operation("Power on vm: #{newly_instantiated_vm.urn}",
+                                   @retries["default"],
+                                   @control["backoff"]) do
+
+                @client.power_on_vm(newly_instantiated_vm)
+              end
           end
+
 
           newly_instantiated_vm.urn
         end

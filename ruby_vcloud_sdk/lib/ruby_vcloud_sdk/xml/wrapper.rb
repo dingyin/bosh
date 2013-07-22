@@ -219,6 +219,16 @@ module VCloudSdk
         @doc_namespaces
       end
 
+      def fix_if_invalid(link, rel, type, href)
+        if link.nil? || link.href.to_s.nil?
+          link = Xml::WrapperFactory.create_instance("Link")
+          link.rel  = rel
+          link.type = type
+          link.href = href
+        end
+        link
+      end
+
       private
 
       def add_namespaces

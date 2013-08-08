@@ -32,7 +32,7 @@ namespace :stemcell do
 
     options = default_options(args)
     options[:stemcell_version] = args.with_defaults({}).fetch(:version)
-    if args[:tarball]
+    if args[:tarball] && !args[:tarball].empty?
       release_tarball = args[:tarball]
       pipeline = Bosh::Dev::Pipeline.new
       options[:agent_gem_src_url] = pipeline.gems_dir_url
@@ -413,7 +413,7 @@ namespace :stemcell do
     }
 
     case infrastructure
-      when 'vsphere'
+      when 'vsphere', 'vcloud'
         # Pass OVFTOOL environment variable when targeting vsphere
         options[:image_vsphere_ovf_ovftool_path] = ENV['OVFTOOL']
       when 'openstack'
@@ -441,7 +441,7 @@ namespace :stemcell do
     return ENV['STEMCELL_HYPERVISOR'] if ENV['STEMCELL_HYPERVISOR']
 
     case infrastructure
-      when 'vsphere'
+      when 'vsphere', 'vcloud'
         hypervisor = 'esxi'
       when 'aws'
         hypervisor = 'xen'

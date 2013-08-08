@@ -37,7 +37,10 @@ mkdir -p ${bosh_app_dir}/bosh/blob
 echo "Starting micro bosh compilation"
 
 # Start agent
-/var/vcap/bosh/bin/bosh_agent -I ${infrastructure} -n ${agent_uri} -s ${blobstore_path} -p local &
+agent_infrastructure=${infrastructure}
+# use vsphere as infrastructure for agent when building for vcloud
+[ "${infrastructure}" == "vcloud" ] && agent_infrastructure=vsphere
+/var/vcap/bosh/bin/bosh_agent -I ${agent_infrastructure} -n ${agent_uri} -s ${blobstore_path} -p local &
 agent_pid=$!
 echo "Starting BOSH Agent for compiling micro bosh package, agent pid is $agent_pid"
 

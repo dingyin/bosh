@@ -7,4 +7,8 @@ set -e
 base_dir=$(readlink -nf $(dirname $0)/../..)
 source $base_dir/lib/prelude_apply.bash
 
-echo -n $system_parameters_infrastructure > $chroot/etc/infrastructure
+# this parameters is used by bosh agent
+# we should use vsphere when building for vcloud
+infrastructure=$system_parameters_infrastructure
+[ "$infrastructure" == "vcloud" ] && infrastructure=vsphere
+echo -n $infrastructure > $chroot/etc/infrastructure

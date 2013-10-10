@@ -14,9 +14,6 @@
 
 /*/vendor/
 
-**/Gemfile
-**/Gemfile.lock
-
 Checkfile
 TAGS
 
@@ -73,3 +70,4 @@ spec_coverage
 spec_reports
 
 /tmp/*
+coverage/

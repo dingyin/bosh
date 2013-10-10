@@ -1,4 +1,26 @@
+require 'yajl'
+
 module IntegrationExampleGroup
+  def deploy_simple(options={})
+    no_track = options.fetch(:no_track, false)
+    manifest_hash = options.fetch(:manifest_hash, Bosh::Spec::Deployments.simple_manifest)
+
+    deployment_manifest = yaml_file('simple', manifest_hash)
+
+    run_bosh("target http://localhost:#{current_sandbox.director_port}")
+    run_bosh('login admin admin')
+
+    run_bosh('create release', work_dir: TEST_RELEASE_DIR)
+    run_bosh('upload release', work_dir: TEST_RELEASE_DIR)
+
+    run_bosh("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+
+    run_bosh("deployment #{deployment_manifest.path}")
+    deploy_result = run_bosh("#{no_track ? "--no-track " : ""}deploy")
+    expect($?).to be_success
+    deploy_result
+  end
+
   def start_sandbox
     puts "Starting sandboxed environment for BOSH tests..."
     current_sandbox.start
@@ -15,9 +37,10 @@ module IntegrationExampleGroup
     current_sandbox.reset(desc)
   end
 
-  def run_bosh(cmd, work_dir = nil, options = {})
+  def run_bosh(cmd, options = {})
     failure_expected = options.fetch(:failure_expected, false)
-    Dir.chdir(work_dir || BOSH_WORK_DIR) do
+    work_dir = options.fetch(:work_dir, BOSH_WORK_DIR)
+    Dir.chdir(work_dir) do
       command = "bosh -n -c #{BOSH_CONFIG} -C #{BOSH_CACHE_DIR} #{cmd}"
       output = `#{command} 2>&1`
       if $?.exitstatus != 0 && !failure_expected
@@ -111,5 +134,31 @@ module IntegrationExampleGroup
       current_sandbox.save_task_logs(desc)
       FileUtils.rm_rf(current_sandbox.cloud_storage_dir)
     end
+  end
+
+  def events(task_id)
+    result = run_bosh("task #{task_id} --raw")
+
+    event_list = []
+    result.each_line do |line|
+      begin
+        event = Yajl::Parser.new.parse(line)
+        event_list << event if event
+
+      rescue Yajl::ParseError
+      end
+    end
+    event_list
+  end
+
+  def start_and_finish_times_for_job_updates(task_id)
+    jobs = {}
+    events(task_id).select do |e|
+      e['stage'] == 'Updating job' && %w(started finished).include?(e['state'])
+    end.each do |e|
+      jobs[e['task']] ||= {}
+      jobs[e['task']][e['state']] = e['time']
+    end
+    jobs
   end
 end

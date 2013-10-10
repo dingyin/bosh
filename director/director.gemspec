@@ -19,8 +19,8 @@ Gem::Specification.new do |s|
 
   s.add_dependency 'bcrypt-ruby', '~>3.0.1'
   s.add_dependency 'blobstore_client', "~>#{version}"
+  s.add_dependency 'bosh-core', "~>#{version}"
   s.add_dependency 'bosh_common', "~>#{version}"
-  s.add_dependency 'bosh_encryption', "~>#{version}"
   s.add_dependency 'bosh_cpi', "~>#{version}"
   s.add_dependency 'bosh_openstack_cpi', "~>#{version}"
   s.add_dependency 'bosh_aws_cpi', "~>#{version}"
@@ -43,11 +43,15 @@ Gem::Specification.new do |s|
 
   s.add_dependency 'bosh_vcloud_cpi', '~> 0.5.0'
 
+  s.add_development_dependency 'rspec'
+  s.add_development_dependency 'rspec-fire'
+  s.add_development_dependency 'machinist', '~>1.0'
+
   s.bindir      = 'bin'
   s.executables << 'director_console'
   s.executables << 'director_scheduler'
   s.executables << 'director'
   s.executables << 'drain_workers'
   s.executables << 'worker'
-  s.executables << 'migrate'
+  s.executables << 'bosh_director_migrate'
 end

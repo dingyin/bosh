@@ -1,29 +1,29 @@
 module Bosh::Stemcell
   class ArchiveFilename
-    def initialize(version, infrastructure, name, light)
+    def initialize(version, infrastructure, operating_system, base_name, light)
       @version = version
       @infrastructure = infrastructure
-      @name = name
+      @operating_system = operating_system
+      @base_name = base_name
       @light = light
     end
 
     def to_s
-      stemcell_filename_parts = []
-      stemcell_filename_parts << version if version == 'latest'
-      stemcell_filename_parts << 'light' if light
-      stemcell_filename_parts << name
-      stemcell_filename_parts << infrastructure.name
-      stemcell_filename_parts << infrastructure.hypervisor unless version == 'latest'
-      stemcell_filename_parts << version unless version == 'latest'
+      stemcell_filename_parts = [name, version, infrastructure.name, infrastructure.hypervisor, operating_system.name]
 
-      "#{stemcell_filename_parts.compact.join('-')}.tgz"
+      "#{stemcell_filename_parts.join('-')}.tgz"
     end
 
     private
 
-    attr_reader :version
-    attr_reader :infrastructure
-    attr_reader :name
-    attr_reader :light
+    def name
+      light ? "light-#{base_name}" : base_name
+    end
+
+    attr_reader :base_name,
+                :version,
+                :infrastructure,
+                :operating_system,
+                :light
   end
 end

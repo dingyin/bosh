@@ -36,10 +36,7 @@ describe VSphereCloud::Cloud do
   #    ntp:
   #    - 10.80.0.44
   #vcenters:
-  #    - host: 172.16.68.3
-  #user: root
-  #password: vmware
-  #datacenters:
+  #  - datacenters:
   #    - name: BOSH_DC
   #      vm_folder: ACCEPTANCE_BOSH_VMs
   #      template_folder: ACCEPTANCE_BOSH_Templates
@@ -54,21 +51,24 @@ describe VSphereCloud::Cloud do
 
   def env(var_name)
     variable = ENV[var_name]
-    raise "Missing environment variable #{var_name}" unless variable
+    raise "SPEC: Missing environment variable #{var_name}" unless variable
     variable
   end
 
   before :all do
     @cpi_options = YAML.load_file(env('BOSH_VSPHERE_CPI_OPTIONS'))
+    @cpi_options.fetch('vcenters').fetch(0).update(
+      'host' => env('BOSH_VSPHERE_CPI_HOST'),
+      'user' => env('BOSH_VSPHERE_CPI_USER'),
+      'password' => env('BOSH_VSPHERE_CPI_PASSWORD'),
+    )
     @cpi = described_class.new(@cpi_options)
 
-    stemcell_path = env('BOSH_VSPHERE_STEMCELL')
     @vlan = env('BOSH_VSPHERE_VLAN')
 
     Dir.mktmpdir do |temp_dir|
-      puts("Extracting stemcell to: #{temp_dir}")
-      output = `tar -C #{temp_dir} -xzf #{stemcell_path} 2>&1`
-      raise "Corrupt image, tar exit status: #{$?.exitstatus} output: #{output}" if $?.exitstatus != 0
+      output = `tar -C #{temp_dir} -xzf #{env('BOSH_VSPHERE_STEMCELL')} 2>&1`
+      raise "SPEC: Corrupt image, tar exit status: #{$?.exitstatus} output: #{output}" if $?.exitstatus != 0
 
       @stemcell_id = @cpi.create_stemcell("#{temp_dir}/image", nil)
     end

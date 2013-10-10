@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe Bosh::Aws::ELB do
-  let(:creds) { { 'my' => 'creds' } }
+  let(:creds) { { 'my' => 'creds', 'region' => 'FAKE_AWS_REGION' } }
   let(:elb) { described_class.new(creds) }
   let(:ec2) { Bosh::Aws::EC2.new({}) }
   let(:fake_aws_security_group) { double('security_group', id: 'sg_id', name: 'security_group_name') }
@@ -12,7 +12,8 @@ describe Bosh::Aws::ELB do
   let(:fake_aws_iam) { double(AWS::IAM, server_certificates: certificates) }
 
   it 'creates an underlying AWS ELB object with your credentials' do
-    AWS::ELB.should_receive(:new).with(creds).and_call_original
+    AWS::ELB.should_receive(:new).
+      with(creds.merge('elb_endpoint' => 'elasticloadbalancing.FAKE_AWS_REGION.amazonaws.com')).and_call_original
     elb.send(:aws_elb).should be_kind_of(AWS::ELB)
   end
 
@@ -221,6 +222,26 @@ describe Bosh::Aws::ELB do
       elb2 = double('elb2', name: 'two')
       fake_aws_elb.should_receive(:load_balancers).and_return([elb1, elb2])
       elb.names.should == %w[one two]
+    end
+  end
+
+  describe 'find_by_name' do
+    let(:fake_elb_instance) { double(AWS::ELB::LoadBalancer, name: 'foo') }
+
+    before do
+      elb.stub(:aws_elb).and_return(fake_aws_elb)
+    end
+
+    it 'returns an elb of the given name' do
+      fake_aws_elb.should_receive(:load_balancers).and_return([fake_elb_instance])
+
+      expect(elb.find_by_name('foo')).to eq fake_elb_instance
+    end
+
+    it "returns nil if elb isn't found for given name" do
+      fake_aws_elb.should_receive(:load_balancers).and_return([fake_elb_instance])
+
+      expect(elb.find_by_name('bar')).to be_nil
     end
   end
 

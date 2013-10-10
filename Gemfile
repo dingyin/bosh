@@ -2,26 +2,22 @@
 
 source 'https://rubygems.org'
 
-ruby '1.9.3'
-
 gemspec path: 'agent_client'
 gemspec path: 'blobstore_client'
 gemspec path: 'bosh_agent'
 gemspec path: 'bosh_aws_cpi'
 gemspec path: 'bosh_common'
+gemspec path: 'bosh-core'
 gemspec path: 'bosh_cpi'
 gemspec path: 'bosh_cli'
 gemspec path: 'bosh_cli_plugin_aws'
 gemspec path: 'bosh_cli_plugin_micro'
-gemspec path: 'bosh_encryption'
 gemspec path: 'bosh_openstack_cpi'
-gemspec path: 'bosh_registry'
+gemspec path: 'bosh-registry'
 gemspec path: 'bosh_vsphere_cpi'
 gemspec path: 'director'
 gemspec path: 'health_monitor'
-gemspec path: 'monit_api'
-gemspec path: 'package_compiler'
-gemspec path: 'ruby_vim_sdk'
+gemspec path: 'bosh-release'
 gemspec path: 'simple_blobstore_server'
 
 gem 'rake', '~>10.0'
@@ -36,6 +32,7 @@ end
 group :development do
   gem 'ruby_gntp'
   gem 'debugger' if RUBY_VERSION < '2.0.0'
+  gem 'git-duet', require: false
 end
 
 group :bat do

@@ -80,7 +80,6 @@ module Bosh::Agent
         end
 
         setup_heartbeats
-        setup_sshd_monitor
 
         if @process_alerts
           if (@smtp_port.nil? || @smtp_user.nil? || @smtp_password.nil?)
@@ -120,17 +119,6 @@ module Bosh::Agent
         @logger.info("Heartbeats are enabled and will be sent every #{interval} seconds")
       else
         @logger.warn("Heartbeats are disabled")
-      end
-    end
-
-    def setup_sshd_monitor
-      interval = Config.sshd_monitor_interval.to_i
-      if interval > 0
-        Bosh::Agent::SshdMonitor.enable(interval, Config.sshd_start_delay)
-        @logger.info("sshd monitor is enabled, interval of #{interval} and start " +
-                     "delay of #{Config.sshd_start_delay} seconds")
-      else
-        @logger.warn("SSH is disabled")
       end
     end
 
@@ -332,7 +320,7 @@ module Bosh::Agent
     def lookup_encryption_handler(arg)
       if arg[:session_id]
         message_session_id = arg[:session_id]
-        @sessions[message_session_id] ||= Bosh::EncryptionHandler.new(@agent_id, @credentials)
+        @sessions[message_session_id] ||= Bosh::Core::EncryptionHandler.new(@agent_id, @credentials)
         encryption_handler = @sessions[message_session_id]
         return encryption_handler
       elsif arg[:reply_to]
@@ -360,7 +348,7 @@ module Bosh::Agent
       # Log exceptions from the EncryptionHandler, but stay quiet on the wire.
       begin
         msg = encryption_handler.decrypt(msg["encrypted_data"])
-      rescue Bosh::EncryptionHandler::CryptError => e
+      rescue Bosh::Core::EncryptionHandler::CryptError => e
         log_encryption_error(e)
         return
       end

@@ -5,111 +5,131 @@ module Bosh::Dev
   describe BatHelper do
     include FakeFS::SpecHelpers
 
-    let(:infrastructure_name) { 'FAKE_INFRASTRUCTURE_NAME' }
-    let(:fake_infrastructure) { instance_double('Bosh::Dev::Infrastructure::Base', name: infrastructure_name) }
-    let(:fake_pipeline) { instance_double('Pipeline', fetch_stemcells: nil) }
+    subject { described_class.new(bat_runner_builder, infrastructure, operating_system, build, 'net-type') }
 
-    subject { BatHelper.new(infrastructure_name) }
+    let(:bat_runner_builder) { instance_double('Bosh::Dev::Aws::RunnerBuilder') }
 
-    before do
-      Infrastructure.should_receive(:for).and_return(fake_infrastructure)
-
-      Pipeline.stub(new: fake_pipeline)
+    let(:infrastructure) do
+      instance_double(
+        'Bosh::Stemcell::Infrastructure::Base',
+        name: 'infrastructure-name',
+        light?: false,
+      )
     end
+
+    let(:operating_system) do
+      instance_double(
+        'Bosh::Stemcell::OperatingSystem::Base',
+        name: 'operating-system-name',
+      )
+    end
+
+    let(:build) { instance_double('Bosh::Dev::Build', download_stemcell: nil) }
+
+    describe '.for_rake_args' do
+      it 'returns bat helper configured with rake arguments' do
+        rake_args = Struct.new(
+          :infrastructure_name,
+          :operating_system_name,
+          :net_type,
+        ).new('infrastructure-name', 'operating-system-name', 'net-type')
+
+        described_class
+          .should_receive(:runner_builder_for_infrastructure_name)
+          .with('infrastructure-name')
+          .and_return(bat_runner_builder)
+
+        Bosh::Stemcell::Infrastructure
+          .should_receive(:for)
+          .with('infrastructure-name')
+          .and_return(infrastructure)
+
+        Bosh::Stemcell::OperatingSystem
+          .should_receive(:for)
+          .with('operating-system-name')
+          .and_return(operating_system)
+
+        Build.should_receive(:candidate).and_return(build)
+
+        bat_helper = instance_double('Bosh::Dev::BatHelper')
+        described_class
+          .should_receive(:new)
+          .with(bat_runner_builder, infrastructure, operating_system, build, 'net-type')
+          .and_return(bat_helper)
+
+        described_class.for_rake_args(rake_args).should == bat_helper
+      end
+    end
+
+    expected_artifacts_dir = '/tmp/ci-artifacts/infrastructure-name/operating-system-name'
 
     describe '#initialize' do
-      it 'sets infrastructre' do
-        expect(subject.infrastructure).to eq(fake_infrastructure)
-      end
+      its(:infrastructure)             { should == infrastructure }
+      its(:operating_system)           { should == operating_system }
+      its(:micro_bosh_deployment_name) { should == 'microbosh' }
+      its(:artifacts_dir)              { should eq("#{expected_artifacts_dir}/deployments") }
+      its(:micro_bosh_deployment_dir)  { should eq("#{expected_artifacts_dir}/deployments/microbosh") }
     end
 
-    describe '#run_rake' do
-      before do
-        ENV.delete('BAT_INFRASTRUCTURE')
+    describe '#deploy_microbosh_and_run_bats' do
+      before { bat_runner_builder.stub(build: bat_runner) }
+      let(:bat_runner) { instance_double('Bosh::Dev::Bat::Runner', deploy_microbosh_and_run_bats: nil) }
 
-        FileUtils.stub(rm_rf: nil, mkdir_p: nil)
-
-        fake_infrastructure.stub(run_system_micro_tests: nil)
-      end
-
-      after do
-        ENV.delete('BAT_INFRASTRUCTURE')
-      end
+      before { FileUtils.stub(rm_rf: nil, mkdir_p: nil) }
 
       it 'removes the artifacts dir' do
         FileUtils.should_receive(:rm_rf).with(subject.artifacts_dir)
-
-        subject.run_rake
+        subject.deploy_microbosh_and_run_bats
       end
 
       it 'creates the microbosh depolyments dir (which is contained within artifacts dir)' do
         FileUtils.should_receive(:mkdir_p).with(subject.micro_bosh_deployment_dir)
-
-        subject.run_rake
+        subject.deploy_microbosh_and_run_bats
       end
 
-      it 'sets ENV["BAT_INFRASTRUCTURE"]' do
-        expect(ENV['BAT_INFRASTRUCTURE']).to be_nil
-
-        subject.run_rake
-
-        expect(ENV['BAT_INFRASTRUCTURE']).to eq(infrastructure_name)
+      it 'downloads stemcells for the specified infrastructure' do
+        build.should_receive(:download_stemcell).with(
+          'bosh-stemcell',
+          infrastructure,
+          operating_system,
+          false,
+          "#{expected_artifacts_dir}/deployments",
+        )
+        subject.deploy_microbosh_and_run_bats
       end
 
-      it 'fetches stemcells for the specified infrastructure' do
-        fake_pipeline.should_receive(:fetch_stemcells).with(subject.infrastructure, subject.artifacts_dir)
+      it 'uses bats runner to deploy microbosh and run bats' do
+        bat_runner_builder
+          .should_receive(:build)
+          .with(subject, 'net-type')
+          .and_return(bat_runner)
 
-        subject.run_rake
-      end
-
-      it 'calls #run_system_micro_tests on the infrastructure' do
-        fake_infrastructure.should_receive(:run_system_micro_tests)
-
-        subject.run_rake
-      end
-    end
-
-    describe '#artifacts_dir' do
-      %w[openstack vsphere aws].each do |i|
-        let(:infrastructure_name) { i }
-
-        its(:artifacts_dir) { should eq(File.join('/tmp', 'ci-artifacts', subject.infrastructure.name, 'deployments')) }
+        bat_runner.should_receive(:deploy_microbosh_and_run_bats)
+        subject.deploy_microbosh_and_run_bats
       end
     end
 
-    describe '#micro_bosh_deployment_dir' do
-      its(:micro_bosh_deployment_dir) { should eq(File.join(subject.artifacts_dir, subject.micro_bosh_deployment_name)) }
-    end
+    describe '#run_bats' do
+      it 'uses bats runner to run bats without deploying microbosh ' +
+         '(assumption is user already has microbosh)' do
+        bat_runner = instance_double('Bosh::Dev::Bat::Runner')
+        bat_runner_builder
+          .should_receive(:build)
+          .with(subject, 'net-type')
+          .and_return(bat_runner)
 
-    describe '#micro_bosh_deployment_name' do
-      its(:micro_bosh_deployment_name) { should == 'microbosh' }
+        bat_runner.should_receive(:run_bats)
+        subject.run_bats
+      end
     end
 
     describe '#bosh_stemcell_path' do
-      before do
-        fake_pipeline.stub(:bosh_stemcell_path) do |infrastructure, artifacts_dir|
-          expect(infrastructure.name).to eq(infrastructure_name)
-          expect(artifacts_dir).to eq(subject.artifacts_dir)
-          'fake bosh stemcell path'
-        end
-      end
-
-      it 'delegates to the pipeline' do
-        expect(subject.bosh_stemcell_path).to eq('fake bosh stemcell path')
-      end
-    end
-
-    describe '#micro_bosh_stemcell_path' do
-      before do
-        fake_pipeline.stub(:micro_bosh_stemcell_path) do |infrastructure, artifacts_dir|
-          expect(infrastructure.name).to eq(infrastructure_name)
-          expect(artifacts_dir).to eq(subject.artifacts_dir)
-          'fake micro bosh stemcell path'
-        end
-      end
-
-      it 'delegates to the pipeline' do
-        expect(subject.micro_bosh_stemcell_path).to eq('fake micro bosh stemcell path')
+      it 'delegates to the build' do
+        build
+          .should_receive(:bosh_stemcell_path)
+          .with(infrastructure, operating_system, "#{expected_artifacts_dir}/deployments")
+          .and_return('bosh-stemcell-path')
+        expect(subject.bosh_stemcell_path).to eq('bosh-stemcell-path')
       end
     end
   end

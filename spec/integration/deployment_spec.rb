@@ -8,8 +8,8 @@ describe 'deployment integrations' do
       run_bosh("target http://localhost:#{current_sandbox.director_port}")
       run_bosh('login admin admin')
 
-      run_bosh('create release', TEST_RELEASE_DIR)
-      run_bosh('upload release', TEST_RELEASE_DIR)
+      run_bosh('create release', work_dir: TEST_RELEASE_DIR)
+      run_bosh('upload release', work_dir: TEST_RELEASE_DIR)
 
       run_bosh("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
 
@@ -39,8 +39,8 @@ describe 'deployment integrations' do
       run_bosh("target http://localhost:#{current_sandbox.director_port}")
       run_bosh('login admin admin')
 
-      run_bosh('create release', TEST_RELEASE_DIR)
-      run_bosh('upload release', TEST_RELEASE_DIR)
+      run_bosh('create release', work_dir: TEST_RELEASE_DIR)
+      run_bosh('upload release', work_dir: TEST_RELEASE_DIR)
 
       run_bosh("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
 
@@ -69,4 +69,41 @@ describe 'deployment integrations' do
     end
   end
 
+  context 'updating jobs in parallel' do
+    it 'should update a job with multiple instances in parallel and obey max_in_flight' do
+      manifest_hash = Bosh::Spec::Deployments.simple_manifest
+      manifest_hash['release']['version'] = 'latest'
+      manifest_hash['update']['canaries'] = 0
+      manifest_hash['properties'] = { 'test_property' => 2 }
+      manifest_hash['update']['max_in_flight'] = 2
+
+      deploy_simple(manifest_hash: manifest_hash)
+
+      times = start_and_finish_times_for_job_updates('last')
+      expect(times['foobar/1']['started']).to be >= times['foobar/0']['started']
+      expect(times['foobar/1']['started']).to be < times['foobar/0']['finished']
+      expect(times['foobar/2']['started']).to be >= [times['foobar/0']['finished'], times['foobar/1']['finished']].min
+    end
+  end
+
+  context 'canceling a deploy job' do
+    it 'should spawn a job and then successfully cancel it' do
+      pending 'hangs when canceling during or before package compilation'
+      deploy_result = deploy_simple(no_track: true)
+
+      task_id = get_task_id(deploy_result, 'running')
+
+      # If you don't have this sleep, events() will hang
+      # And, yes, you need it before "cancel task"
+      sleep 5 # Wait for deployment to start
+      cancel_result = run_bosh("cancel task #{task_id}")
+
+      expect($?).to be_success
+      expect(cancel_result).to match /Task #{task_id} is getting canceled/
+
+      error_event = events(task_id).last['error']
+      expect(error_event['code']).to eq(10001)
+      expect(error_event['message']).to eq("Task #{task_id} cancelled")
+    end
+  end
 end

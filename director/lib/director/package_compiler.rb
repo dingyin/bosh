@@ -3,7 +3,6 @@
 module Bosh::Director
   class PackageCompiler
     include LockHelper
-    include MetadataHelper
 
     attr_reader :compilations_performed
 
@@ -221,7 +220,7 @@ module Bosh::Director
           task_result = nil
 
           prepare_vm(stemcell) do |vm_data|
-            update_vm_metadata(vm_data.vm, :compiling => package.name)
+            vm_metadata_updater.update(vm_data.vm, :compiling => package.name)
             agent_task =
               vm_data.agent.compile_package(package.blobstore_id,
                                             package.sha1, package.name,
@@ -335,18 +334,19 @@ module Bosh::Director
           tear_down_vm(vm_data)
         end
       end
-
     end
 
     # Tears down a VM and releases the network reservations.
     # @param [VmData] vm_data The VmData object for the VM to tear down.
     def tear_down_vm(vm_data)
       vm = vm_data.vm
-      reservation = vm_data.reservation
-      @logger.info("Deleting compilation VM: #{vm.cid}")
-      @cloud.delete_vm(vm.cid)
-      vm.destroy
-      release_network(reservation)
+      if vm.exists?
+        reservation = vm_data.reservation
+        @logger.info("Deleting compilation VM: #{vm.cid}")
+        @cloud.delete_vm(vm.cid)
+        vm.destroy
+        release_network(reservation)
+      end
     end
 
     # @param [CompileTask] task
@@ -412,6 +412,12 @@ module Bosh::Director
         counter += 1 unless task.compiled?
       end
       counter
+    end
+
+    private
+
+    def vm_metadata_updater
+      @vm_metadata_updater ||= VmMetadataUpdater.build
     end
   end
 end

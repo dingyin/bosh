@@ -1,71 +1,46 @@
 require 'bosh/dev/build'
-require 'bosh/dev/stemcell_environment'
+require 'bosh/dev/gem_components'
+require 'bosh/stemcell/builder_command'
 
 module Bosh::Dev
   class StemcellBuilder
-    attr_reader :directory, :work_path
-
-    def initialize(stemcell_type, infrastructure, candidate = Bosh::Dev::Build.candidate)
-      @candidate = candidate
-      @stemcell_type = stemcell_type
-      @infrastructure = infrastructure
-
-      mnt = ENV.fetch('FAKE_MNT', '/mnt')
-      @directory = File.join(mnt, 'stemcells', "#{infrastructure}-#{stemcell_type}")
-      @work_path = File.join(directory, 'work')
-      @build_path = File.join(directory, 'build')
+    def self.for_candidate_build(infrastructure_name, operating_system_name)
+      new(
+        ENV.to_hash,
+        Build.candidate,
+        infrastructure_name,
+        operating_system_name,
+      )
     end
 
-    def build
-      ENV['BUILD_PATH'] = build_path
-      ENV['WORK_PATH'] = work_path
-
-      environment = StemcellEnvironment.new(self)
-      environment.sanitize
-
-      case stemcell_type
-        when 'micro'
-          micro_task
-        when 'basic'
-          basic_task
-      end
-
-      stemcell_path!
+    def initialize(env, build, infrastructure_name, operating_system_name)
+      @build_number = build.number
+      @stemcell_builder_command = Bosh::Stemcell::BuilderCommand.new(
+        env,
+        infrastructure_name:   infrastructure_name,
+        operating_system_name: operating_system_name,
+        version:               build.number,
+        release_tarball_path:  build.release_tarball_path,
+      )
     end
 
-    def stemcell_path
-      name = case stemcell_type
-               when 'micro'
-                 'micro-bosh-stemcell'
-               when 'basic'
-                 'bosh-stemcell'
-             end
+    def build_stemcell
+      gem_components = GemComponents.new(@build_number)
+      gem_components.build_release_gems
 
-      infrastructure_name = infrastructure == 'openstack' ? 'openstack-kvm' : infrastructure
+      @stemcell_path = stemcell_builder_command.build
 
-      File.join(work_path, 'work', "#{name}-#{infrastructure_name}-#{candidate.number}.tgz")
+      File.exist?(@stemcell_path) || raise("#{@stemcell_path} does not exist")
+
+      @stemcell_path
+    end
+
+    def stemcell_chroot_dir
+      stemcell_builder_command.chroot_dir
     end
 
     private
 
-    attr_reader :candidate,
-                :stemcell_type,
-                :infrastructure,
-                :build_path
-
-    def micro_task
-      bosh_release_path = candidate.download_release
-      Rake::Task['stemcell:micro'].invoke(bosh_release_path, infrastructure, candidate.number)
-    end
-
-    def basic_task
-      Rake::Task['stemcell:basic'].invoke(infrastructure, candidate.number)
-    end
-
-    def stemcell_path!
-      File.exist?(stemcell_path) || raise("#{stemcell_path} does not exist")
-
-      stemcell_path
-    end
+    attr_reader :stemcell_builder_command
   end
 end

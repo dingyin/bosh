@@ -1,22 +1,24 @@
-require 'bosh/dev/build'
-require 'bosh/dev/bulk_uploader'
+require 'bosh/dev'
 require 'bosh/dev/version_file'
+require 'bosh/dev/gem_components'
 
-module Bosh
-  module Dev
-    class GemsGenerator
-      def generate_and_upload
-        VersionFile.new(Build.candidate.number).write
+module Bosh::Dev
+  class GemsGenerator
+    def initialize(build)
+      @build = build
+      @components = GemComponents.new(build.number)
+    end
 
-        Rake::Task['all:finalize_release_directory'].invoke
+    def generate_and_upload
+      @components.build_release_gems
 
-        Dir.chdir('pkg') do
-          Bundler.with_clean_env do
-            # We need to run this without Bundler as we generate an index for all dependant gems when run with bundler
-            Rake::FileUtilsExt.sh('gem', 'generate_index', '.')
-          end
-          BulkUploader.new.upload_r('.', 'gems')
+      Dir.chdir('pkg') do
+        Bundler.with_clean_env do
+          # We need to run this without Bundler as we generate an index
+          # for all dependant gems when run with bundler
+          Rake::FileUtilsExt.sh('gem', 'generate_index', '.')
         end
+        @build.upload_gems('.', 'gems')
       end
     end
   end

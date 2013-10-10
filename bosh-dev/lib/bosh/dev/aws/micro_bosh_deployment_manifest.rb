@@ -1,12 +1,12 @@
 require 'bosh/dev/aws'
 require 'bosh/dev/aws/receipts'
-require 'bosh/dev/bat/bosh_cli_session'
+require 'bosh/dev/bosh_cli_session'
 
 module Bosh::Dev::Aws
   class MicroBoshDeploymentManifest
-    def initialize(bosh_cli_session)
+    def initialize(env, bosh_cli_session)
       @bosh_cli_session = bosh_cli_session
-      @receipts = Receipts.new
+      @receipts = Receipts.new(env)
     end
 
     def write

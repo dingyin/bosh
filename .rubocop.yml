@@ -11,21 +11,21 @@ AllCops:
    - bosh_cli_plugin_micro/**
    - bosh_common/**
    - bosh_cpi/**
-   - bosh_encryption/**
    - bosh_openstack_cpi/**
-   - bosh_registry/**
+   - bosh-registry/**
    - bosh_vsphere_cpi/**
    - director/**
    - health_monitor/**
-   - monit_api/**
-   - package_compiler/**
+   - bosh-release/**
    - release/**
-   - ruby_vim_sdk/**
    - simple_blobstore_server/**
    - spec/**
    - stemcell_builder/**
    - vendor/**
    - tmp/**
+
+CollectionMethods:
+  Enabled: false # Enabling this doesn't like "inject"
 
 Encoding:
   Enabled: false
@@ -42,5 +42,15 @@ CaseIndentation:
 DotPosition:
   Enabled: false
 
+MethodLength:
+  CountComments: false
+  Max: 20
+
 Blocks:
   Enabled: false # {} for multi-line blocks in RSpec expectations is very common
+
+TrivialAccessors:
+  Enabled: false # Bosh::Stemcell::Infrastructure#light? was a false positive
+
+AvoidPerlisms:
+  Enabled: false # Unfortunately $CHILD_STATUS isn't always the same as $?

@@ -7,5 +7,10 @@ set -e
 base_dir=$(readlink -nf $(dirname $0)/../..)
 source $base_dir/lib/prelude_apply.bash
 
-echo -n $stemcell_infrastructure > $chroot/var/vcap/bosh/etc/infrastructure
+# this parameters is used by bosh agent
+# we should use vsphere when building for vcloud
+infrastructure=$stemcell_infrastructure
+[ "$infrastructure" == "vcloud" ] && infrastructure=vsphere
+echo -n $infrastructure > $chroot/var/vcap/bosh/etc/infrastructure
+
 echo -n $stemcell_operating_system > $chroot/var/vcap/bosh/etc/operating_system
